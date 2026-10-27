@@ -1,0 +1,203 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard Overview - Digital Dukan{% endblock %}
+{% block page_title %}Dashboard Overview{% endblock %}
+
+{% block content %}
+<div class="dashboard-content">
+    <!-- Header Banner -->
+    <div class="dashboard-header-banner">
+        <div>
+            <h1 class="dashboard-heading">Dashboard Overview</h1>
+            <p class="dashboard-subheading">Live business performance powered by Python Pandas & NumPy analytics engine.</p>
+        </div>
+        <div class="dashboard-date-badge">
+            Real-time Analytics
+        </div>
+    </div>
+
+    <!-- Summary Metrics Cards Grid -->
+    <div class="stats-grid">
+        <!-- Total Revenue Card -->
+        <div class="stat-card">
+            <div class="stat-card-header">
+                <span class="stat-label">Total Revenue</span>
+                <span class="stat-icon revenue-icon">₹</span>
+            </div>
+            <div class="stat-value text-success">₹{{ "%.2f"|format(metrics.total_revenue) }}</div>
+            <div class="stat-meta">Accumulated sales transactions</div>
+        </div>
+
+        <!-- Total Expenses Card -->
+        <div class="stat-card">
+            <div class="stat-card-header">
+                <span class="stat-label">Total Expenses</span>
+                <span class="stat-icon expenses-icon">📉</span>
+            </div>
+            <div class="stat-value" style="color: var(--color-danger);">₹{{ "%.2f"|format(metrics.total_expenses) }}</div>
+            <div class="stat-meta">Operating & overhead costs</div>
+        </div>
+
+        <!-- Net Profit Card -->
+        <div class="stat-card">
+            <div class="stat-card-header">
+                <span class="stat-label">Net Profit</span>
+                <span class="stat-icon profit-icon">📊</span>
+            </div>
+            <div class="stat-value {% if metrics.net_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+                ₹{{ "%.2f"|format(metrics.net_profit) }}
+            </div>
+            <div class="stat-meta">Revenue minus overhead expenses</div>
+        </div>
+
+        <!-- Total Stock Card -->
+        <div class="stat-card">
+            <div class="stat-card-header">
+                <span class="stat-label">Total Stock</span>
+                <span class="stat-icon products-icon">📦</span>
+            </div>
+            <div class="stat-value">{{ metrics.total_stock }}</div>
+            <div class="stat-meta">Units in stock ({{ metrics.total_products_count }} unique products)</div>
+        </div>
+    </div>
+
+    <!-- Daily Sales Trend Chart Card -->
+    <div class="card chart-card">
+        <div class="card-header chart-header-flex">
+            <div>
+                <h2 class="card-title">Daily Sales Trend</h2>
+                <span class="card-subtitle">Chronological revenue progression computed with Pandas daily aggregation</span>
+            </div>
+            <div class="chart-legend-badge">
+                <span class="legend-indicator"></span>
+                <span>Revenue (₹)</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="chart-wrapper">
+                <canvas id="salesChart"></canvas>
+            </div>
+            <div id="chartEmptyState" class="empty-chart-notice" style="display: none;">
+                <div class="empty-state-icon">📈</div>
+                <p>No sales activity logged yet. Completed sales will automatically populate this revenue trend.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analytics Panels -->
+    <div class="analytics-panels">
+        <!-- Low Stock Alert Panel -->
+        <div class="panel">
+            <div class="panel-header" style="display: flex; align-items: center; justify-content: space-between;">
+                <h2 class="panel-title" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span>⚠️ Low Stock Alerts (&lt; 10 Units)</span>
+                </h2>
+                {% if metrics.low_stock_products %}
+                <span class="badge badge-warning">{{ metrics.low_stock_products|length }} Item(s) Need Reorder</span>
+                {% else %}
+                <span class="badge badge-success">Stock Optimal</span>
+                {% endif %}
+            </div>
+            <div class="panel-content" style="padding: 0;">
+                {% if metrics.low_stock_products %}
+                <div class="table-responsive">
+                    <table class="data-table" style="margin: 0;">
+                        <thead>
+                            <tr>
+                                <th>Product Name</th>
+                                <th>Category</th>
+                                <th class="text-right">Price</th>
+                                <th class="text-center">Remaining Stock</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in metrics.low_stock_products %}
+                            <tr>
+                                <td>
+                                    <strong class="product-name">{{ item.name }}</strong>
+                                </td>
+                                <td>
+                                    <span class="badge badge-category">{{ item.category }}</span>
+                                </td>
+                                <td class="text-right font-mono">
+                                    ₹{{ "%.2f"|format(item.selling_price) }}
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge badge-warning" style="font-weight: 700; color: #b45309; background-color: #fef3c7;">
+                                        {{ item.stock_quantity }} units left
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-panel">
+                    <div>
+                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">✅</div>
+                        <p style="font-weight: 600; color: var(--color-text-primary);">All Inventory Levels are Healthy</p>
+                        <p style="font-size: 0.85rem; color: var(--color-text-muted);">No products currently have stock below 10 units.</p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Recent Transactions Panel -->
+        <div class="panel">
+            <div class="panel-header">
+                <h2 class="panel-title">🛒 Recent Sales Activity</h2>
+            </div>
+            <div class="panel-content" style="padding: 0;">
+                {% if metrics.recent_sales %}
+                <div class="table-responsive">
+                    <table class="data-table" style="margin: 0;">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th class="text-center">Qty</th>
+                                <th class="text-right">Total Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for sale in metrics.recent_sales %}
+                            <tr>
+                                <td>
+                                    <strong>{{ sale.name if sale.name else 'Product #' ~ sale.product_id }}</strong>
+                                    {% if sale.category %}
+                                    <span class="badge badge-category" style="font-size: 0.7rem; margin-left: 0.35rem;">{{ sale.category }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge badge-units">{{ sale.quantity_sold }} pcs</span>
+                                </td>
+                                <td class="text-right font-mono text-bold text-success">
+                                    ₹{{ "%.2f"|format(sale.total_amount) }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-panel">
+                    <div>
+                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">🛒</div>
+                        <p style="font-weight: 600; color: var(--color-text-primary);">No Sales Logged Yet</p>
+                        <p style="font-size: 0.85rem; color: var(--color-text-muted);"><a href="{{ url_for('main.sales') }}">Record a sale</a> to view recent transactions.</p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<!-- Daily Sales Chart Script -->
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+{% endblock %}

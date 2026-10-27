@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+
+{% block title %}Expenses Tracking - Digital Dukan{% endblock %}
+{% block page_title %}Store Expenses{% endblock %}
+
+{% block content %}
+<div class="expenses-container">
+    <!-- Header Row -->
+    <div class="page-header-row">
+        <div>
+            <h1 class="section-title">Expense Tracking & Overheads</h1>
+            <p class="section-subtitle">Track operational store expenditures (rent, electricity, salaries, supplies) for profit analysis.</p>
+        </div>
+        <button class="btn btn-primary" onclick="document.getElementById('recordExpenseCard').scrollIntoView({behavior: 'smooth'});">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Add New Expense</span>
+        </button>
+    </div>
+
+    <!-- Add Expense Form Card -->
+    <div class="card form-card" id="recordExpenseCard">
+        <div class="card-header">
+            <div>
+                <h2 class="card-title">Log New Store Expense</h2>
+                <span class="card-subtitle">Record overheads and miscellaneous costs to deduct from store profits</span>
+            </div>
+            <span class="card-tag">Expense Entry</span>
+        </div>
+        <div class="card-body">
+            <form action="{{ url_for('main.add_expense') }}" method="POST" class="expense-form">
+                <div class="form-grid">
+                    <!-- Category Input with Datalist Suggestions -->
+                    <div class="form-group">
+                        <label for="category" class="form-label">Expense Category *</label>
+                        <input type="text" 
+                               id="category" 
+                               name="category" 
+                               class="form-control" 
+                               placeholder="e.g. Rent, Utilities, Packaging" 
+                               list="category-suggestions" 
+                               required 
+                               autofocus>
+                        <datalist id="category-suggestions">
+                            <option value="Rent">
+                            <option value="Utilities / Electricity">
+                            <option value="Staff Wages / Salary">
+                            <option value="Packaging & Bags">
+                            <option value="Transport & Delivery">
+                            <option value="Maintenance & Cleaning">
+                            <option value="Tea & Refreshments">
+                            <option value="Taxes & Licenses">
+                            <option value="Miscellaneous">
+                        </datalist>
+                    </div>
+
+                    <!-- Expense Amount Input -->
+                    <div class="form-group">
+                        <label for="amount" class="form-label">Amount (₹) *</label>
+                        <input type="number" 
+                               id="amount" 
+                               name="amount" 
+                               class="form-control" 
+                               step="0.01" 
+                               min="0.01" 
+                               placeholder="0.00" 
+                               required>
+                    </div>
+
+                    <!-- Description Input -->
+                    <div class="form-group" style="grid-column: span 2;">
+                        <label for="description" class="form-label">Description / Remarks (Optional)</label>
+                        <input type="text" 
+                               id="description" 
+                               name="description" 
+                               class="form-control" 
+                               placeholder="e.g. Monthly shop rent paid to landlord, electricity bill for Oct">
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                            <polyline points="7 3 7 8 15 8"></polyline>
+                        </svg>
+                        <span>Save Expense Record</span>
+                    </button>
+                    <button type="reset" class="btn btn-secondary">Reset</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Expenses Table Card -->
+    <div class="card table-card">
+        <div class="card-header table-header-flex">
+            <div>
+                <h2 class="card-title">Expense History ({{ expenses|length }})</h2>
+                <span class="card-subtitle">All overhead expenditures ordered by recent date</span>
+            </div>
+            {% if total_expenses %}
+            <div class="total-expense-badge">
+                <span>Total Spent:</span>
+                <strong>₹{{ "%.2f"|format(total_expenses) }}</strong>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th class="text-center" style="width: 70px;">Exp #</th>
+                        <th style="width: 140px;">Date</th>
+                        <th>Category</th>
+                        <th>Description / Remarks</th>
+                        <th class="text-right" style="width: 150px;">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for exp in expenses %}
+                    <tr>
+                        <td class="text-center text-muted font-mono">#{{ exp.id }}</td>
+                        <td class="text-muted font-mono" style="font-size: 0.875rem;">
+                            {{ exp.expense_date.strftime('%Y-%m-%d') if exp.expense_date else 'N/A' }}
+                        </td>
+                        <td>
+                            <span class="badge badge-warning" style="font-weight: 600;">{{ exp.category }}</span>
+                        </td>
+                        <td class="text-muted">
+                            {{ exp.description if exp.description else '—' }}
+                        </td>
+                        <td class="text-right font-mono text-bold" style="color: var(--color-danger);">
+                            ₹{{ "%.2f"|format(exp.amount) }}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="empty-table-cell">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">📋</div>
+                                <h3>No Expenses Logged Yet</h3>
+                                <p>Record store costs like utilities, rent, or maintenance using the form above.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
