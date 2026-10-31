@@ -1,6 +1,7 @@
 import io
+import datetime
 from decimal import Decimal
-import mysql.connector
+import sqlite3
 from flask import Blueprint, jsonify, render_template, request, redirect, url_for, flash, Response, send_file
 from fpdf import FPDF
 from app.utils import get_db_connection, get_db_cursor
@@ -31,14 +32,14 @@ def index():
 
 @main_bp.route('/products', methods=['GET'])
 def products():
-    """Fetch and list all products from the database."""
+    """Fetch and list all active products from the database."""
     conn = None
     cursor = None
     products_list = []
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM products ORDER BY id DESC")
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM products WHERE is_active = 1 ORDER BY id DESC")
         products_list = cursor.fetchall()
     except Exception as err:
         flash(f"Error loading products: {err}", "danger")
@@ -79,11 +80,11 @@ def add_product():
             return redirect(url_for('main.products'))
 
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         query = """
-            INSERT INTO products (name, category, purchase_price, selling_price, stock_quantity)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO products (name, category, purchase_price, selling_price, stock_quantity, is_active)
+            VALUES (?, ?, ?, ?, ?, 1)
         """
         cursor.execute(query, (name, category, cost, price, stock))
         conn.commit()
@@ -130,12 +131,12 @@ def edit_product(id):
             return redirect(url_for('main.products'))
 
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         query = """
             UPDATE products
-            SET name = %s, category = %s, purchase_price = %s, selling_price = %s, stock_quantity = %s
-            WHERE id = %s
+            SET name = ?, category = ?, purchase_price = ?, selling_price = ?, stock_quantity = ?
+            WHERE id = ?
         """
         cursor.execute(query, (name, category, cost, price, stock, id))
         conn.commit()
@@ -159,34 +160,36 @@ def edit_product(id):
 
 @main_bp.route('/products/delete/<int:id>', methods=['POST'])
 def delete_product(id):
-    """Delete a product from the database using parameterized queries."""
+    """
+    Soft delete a product from the database using parameterized queries.
+    Sets is_active = 0 so historical sales and reports remain valid without foreign key errors.
+    """
     conn = None
     cursor = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
-        query = "DELETE FROM products WHERE id = %s"
+        cursor.execute("SELECT id, name, is_active FROM products WHERE id = ?", (id,))
+        product = cursor.fetchone()
+
+        if not product:
+            flash(f"Product #{id} not found.", "danger")
+            return redirect(url_for('main.products'))
+
+        # Perform soft delete by setting is_active = 0
+        query = "UPDATE products SET is_active = 0 WHERE id = ?"
         cursor.execute(query, (id,))
         conn.commit()
-        flash(f"Product #{id} removed successfully.", "info")
+        flash(f"Product '{product['name']}' removed successfully.", "info")
 
-    except mysql.connector.Error as err:
+    except sqlite3.Error as err:
         if conn is not None:
             try:
                 conn.rollback()
             except Exception:
                 pass
-
-        # Foreign key constraint failure (code 1451)
-        if err.errno == 1451:
-            flash(
-                "Cannot delete this product because it has recorded sales. To remove it from inventory, update the stock to 0 instead.",
-                "warning"
-            )
-        else:
-            flash(f"Database error while deleting product: {err.msg}", "danger")
-
+        flash(f"Database error while deleting product: {err}", "danger")
     except Exception as err:
         if conn is not None:
             try:
@@ -214,10 +217,10 @@ def sales():
     sales_history = []
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
-        # Fetch products for the dropdown
-        cursor.execute("SELECT id, name, category, selling_price, stock_quantity FROM products ORDER BY name ASC")
+        # Fetch active products for the dropdown
+        cursor.execute("SELECT id, name, category, selling_price, stock_quantity FROM products WHERE is_active = 1 ORDER BY name ASC")
         products_list = cursor.fetchall()
 
         # Fetch sales history joined with product metadata
@@ -274,12 +277,11 @@ def add_sale():
     cursor = None
     try:
         conn = get_db_connection()
-        conn.autocommit = False
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
-        # 1. Fetch current stock and selling price with row lock
+        # 1. Fetch current stock and selling price
         cursor.execute(
-            "SELECT id, name, selling_price, stock_quantity FROM products WHERE id = %s FOR UPDATE",
+            "SELECT id, name, selling_price, stock_quantity FROM products WHERE id = ? AND is_active = 1",
             (product_id,)
         )
         product = cursor.fetchone()
@@ -307,15 +309,15 @@ def add_sale():
         # 4. Insert transaction into sales table
         insert_query = """
             INSERT INTO sales (product_id, quantity_sold, total_amount)
-            VALUES (%s, %s, %s)
+            VALUES (?, ?, ?)
         """
-        cursor.execute(insert_query, (product_id, quantity_sold, total_amount))
+        cursor.execute(insert_query, (product_id, quantity_sold, float(total_amount)))
 
         # 5. Deduct inventory from products table
         update_query = """
             UPDATE products
-            SET stock_quantity = stock_quantity - %s
-            WHERE id = %s
+            SET stock_quantity = stock_quantity - ?
+            WHERE id = ?
         """
         cursor.execute(update_query, (quantity_sold, product_id))
 
@@ -352,15 +354,14 @@ def delete_sale(id):
     cursor = None
     try:
         conn = get_db_connection()
-        conn.autocommit = False
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         # 1. Fetch the sale to get product_id and quantity_sold
         cursor.execute(
             "SELECT s.id, s.product_id, s.quantity_sold, p.name AS product_name "
             "FROM sales s "
             "LEFT JOIN products p ON s.product_id = p.id "
-            "WHERE s.id = %s FOR UPDATE",
+            "WHERE s.id = ?",
             (id,)
         )
         sale = cursor.fetchone()
@@ -376,13 +377,13 @@ def delete_sale(id):
 
         # 2. Add quantity back to stock in products table
         cursor.execute(
-            "UPDATE products SET stock_quantity = stock_quantity + %s WHERE id = %s",
+            "UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?",
             (qty_to_restore, product_id)
         )
 
         # 3. Delete the sale record
         cursor.execute(
-            "DELETE FROM sales WHERE id = %s",
+            "DELETE FROM sales WHERE id = ?",
             (id,)
         )
 
@@ -434,7 +435,7 @@ def download_invoice(sale_id):
     cursor = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         query = """
             SELECT s.id AS sale_id,
@@ -446,7 +447,7 @@ def download_invoice(sale_id):
                    p.selling_price
             FROM sales s
             JOIN products p ON s.product_id = p.id
-            WHERE s.id = %s
+            WHERE s.id = ?
         """
         cursor.execute(query, (sale_id,))
         sale = cursor.fetchone()
@@ -477,7 +478,17 @@ def download_invoice(sale_id):
         pdf.line(10, pdf.get_y(), 138, pdf.get_y())
         pdf.ln(3)
 
-        sale_date_str = sale['sale_date'].strftime('%d-%b-%Y %I:%M %p') if sale['sale_date'] else 'N/A'
+        raw_date = sale['sale_date']
+        if hasattr(raw_date, 'strftime'):
+            sale_date_str = raw_date.strftime('%d-%b-%Y %I:%M %p')
+        elif raw_date:
+            try:
+                dt_obj = datetime.datetime.fromisoformat(str(raw_date))
+                sale_date_str = dt_obj.strftime('%d-%b-%Y %I:%M %p')
+            except Exception:
+                sale_date_str = str(raw_date)
+        else:
+            sale_date_str = 'N/A'
 
         pdf.set_font('Arial', 'B', 9)
         pdf.set_text_color(15, 23, 42)
@@ -562,7 +573,7 @@ def expenses():
     total_spent = Decimal('0.00')
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         query = "SELECT * FROM expenses ORDER BY expense_date DESC, id DESC"
         cursor.execute(query)
         expenses_list = cursor.fetchall()
@@ -609,11 +620,11 @@ def add_expense():
     cursor = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         query = """
             INSERT INTO expenses (category, amount, description)
-            VALUES (%s, %s, %s)
+            VALUES (?, ?, ?)
         """
         cursor.execute(query, (category, amount, description))
         conn.commit()
@@ -649,7 +660,7 @@ def reports():
     }
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         query = """
             SELECT COUNT(*) AS total_sales_count,
@@ -714,7 +725,7 @@ def chart_data():
 def health_check():
     """
     Health check API endpoint.
-    Performs a raw SQL query ('SELECT 1 AS status') using mysql-connector.
+    Performs a raw SQL query ('SELECT 1 AS status') using SQLite.
     Returns 200 OK with connectivity details or 500 Internal Server Error if DB check fails.
     """
     try:
@@ -723,11 +734,12 @@ def health_check():
         result = cursor.fetchone()
         cursor.close()
 
-        if result and result.get('status') == 1:
+        if result and (result['status'] == 1 or result.get('status') == 1):
             return jsonify({
                 'status': 'healthy',
                 'database': 'connected',
-                'message': 'Digital Dukan API and MySQL database are operational'
+                'database_type': 'SQLite',
+                'message': 'Digital Dukan API and SQLite database are operational'
             }), 200
         else:
             return jsonify({

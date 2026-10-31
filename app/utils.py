@@ -1,82 +1,97 @@
 """
 Digital Dukan - Utilities Module
-Provides database connection management, connection pooling, and reusable helpers.
-Uses raw MySQL connections with mysql-connector-python and dictionary cursors.
+Provides SQLite database connection management and reusable helpers.
+Uses Python's built-in sqlite3 with sqlite3.Row row factory for zero-configuration deployment.
 """
+import sqlite3
+import datetime
 from flask import g, has_app_context
-import mysql.connector
-from mysql.connector import pooling, Error
 from config import Config
 
-# Module-level connection pool
-_db_pool = None
+
+# Register custom datetime/timestamp converters for sqlite3
+def _convert_timestamp(val):
+    if not val:
+        return None
+    s = val.decode('utf-8') if isinstance(val, bytes) else str(val)
+    try:
+        return datetime.datetime.fromisoformat(s)
+    except Exception:
+        return s
 
 
-def get_db_pool():
+sqlite3.register_converter('timestamp', _convert_timestamp)
+sqlite3.register_converter('datetime', _convert_timestamp)
+
+
+class DictRow(sqlite3.Row):
     """
-    Get or initialize the reusable MySQL connection pool.
+    Subclass of sqlite3.Row providing dictionary-like .get() access
+    while maintaining full sqlite3.Row index and name access.
     """
-    global _db_pool
-    if _db_pool is None:
-        db_config = Config.get_db_config(include_db=True)
-        _db_pool = pooling.MySQLConnectionPool(
-            pool_name=Config.DB_POOL_NAME,
-            pool_size=Config.DB_POOL_SIZE,
-            **db_config
-        )
-    return _db_pool
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except (IndexError, KeyError):
+            return default
 
 
-def get_db_connection(use_pool=True):
+class SQLiteConnection(sqlite3.Connection):
     """
-    Obtain a reusable MySQL database connection.
+    Subclass of sqlite3.Connection that gracefully accepts cursor(dictionary=True)
+    for seamless backward compatibility with existing code.
+    """
+    def cursor(self, *args, **kwargs):
+        kwargs.pop('dictionary', None)
+        return super().cursor(*args, **kwargs)
+
+
+def get_db_connection(db_path=None):
+    """
+    Obtain a SQLite database connection to digital_dukan.db.
     When running within an active Flask application/request context, reuses `g.db`
     to guarantee a single connection per request and clean teardown on completion.
+    Configures sqlite3.Row as the row_factory so queries return dictionary-like objects.
+    Enforces foreign key constraints using PRAGMA foreign_keys = ON.
     """
+    target_path = str(db_path or Config.DB_PATH)
+
     if has_app_context():
-        if 'db' not in g or g.db is None or not g.db.is_connected():
-            if use_pool:
-                try:
-                    pool = get_db_pool()
-                    g.db = pool.get_connection()
-                except Exception:
-                    db_config = Config.get_db_config(include_db=True)
-                    g.db = mysql.connector.connect(**db_config)
-            else:
-                db_config = Config.get_db_config(include_db=True)
-                g.db = mysql.connector.connect(**db_config)
+        if 'db' not in g or g.db is None:
+            conn = sqlite3.connect(
+                target_path,
+                detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+                factory=SQLiteConnection
+            )
+            conn.row_factory = DictRow
+            conn.execute("PRAGMA foreign_keys = ON;")
+            g.db = conn
         return g.db
 
     # Standalone execution (outside Flask context)
-    if use_pool:
-        try:
-            pool = get_db_pool()
-            return pool.get_connection()
-        except Exception:
-            pass
-
-    db_config = Config.get_db_config(include_db=True)
-    return mysql.connector.connect(**db_config)
+    conn = sqlite3.connect(
+        target_path,
+        detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+        factory=SQLiteConnection
+    )
+    conn.row_factory = DictRow
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
 
 
 def get_db_cursor(conn=None, dictionary=True):
     """
-    Get a database cursor with dictionary=True by default so rows
-    are returned as Python dictionaries.
-    Retains a strong reference to the connection on the cursor object.
+    Get a database cursor.
+    Maintains compatibility with callers passing dictionary=True.
     """
     if conn is None:
         conn = get_db_connection()
-    cursor = conn.cursor(dictionary=dictionary)
-    # Retain connection reference to prevent garbage collection during standalone usage
-    cursor._connection_ref = conn
-    return cursor
+    return conn.cursor()
 
 
 def close_db_connection(e=None):
     """
     Flask teardown handler to close the request-scoped database connection.
-    For pooled connections, calling close() returns the connection back to the pool.
     """
     if has_app_context():
         db = g.pop('db', None)

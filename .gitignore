@@ -50,6 +50,8 @@ MANIFEST
 *.spec
 
 # Logs and databases
+*.db
+*.sqlite3
 *.log
 pip-log.txt
 pip-delete-this-directory.txt
@@ -91,3 +93,4 @@ ipython_config.py
 .DS_Store
 Thumbs.db
 desktop.ini
+*.db

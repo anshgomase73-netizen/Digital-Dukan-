@@ -1,7 +1,7 @@
 """
 Digital Dukan - Business Analytics Engine
 Uses Pandas and NumPy to compute financial indicators, inventory health,
-and retail performance metrics from MySQL database records.
+and retail performance metrics from SQLite database records.
 """
 from decimal import Decimal
 import pandas as pd
@@ -36,22 +36,27 @@ def get_dashboard_metrics():
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
-        # 1. Fetch all rows as dictionaries
-        cursor.execute("SELECT id, name, category, purchase_price, selling_price, stock_quantity, created_at FROM products")
-        products_data = cursor.fetchall()
+        # 1. Fetch active products for inventory metrics
+        cursor.execute("SELECT id, name, category, purchase_price, selling_price, stock_quantity, created_at FROM products WHERE is_active = 1")
+        products_data = [dict(r) for r in cursor.fetchall()]
 
         cursor.execute("SELECT id, product_id, quantity_sold, total_amount, sale_date FROM sales ORDER BY sale_date DESC")
-        sales_data = cursor.fetchall()
+        sales_data = [dict(r) for r in cursor.fetchall()]
 
         cursor.execute("SELECT id, category, amount, description, expense_date FROM expenses ORDER BY expense_date DESC")
-        expenses_data = cursor.fetchall()
+        expenses_data = [dict(r) for r in cursor.fetchall()]
+
+        # Also fetch all products (including inactive) for past sale metadata resolution
+        cursor.execute("SELECT id, name, category FROM products")
+        all_products_data = [dict(r) for r in cursor.fetchall()]
 
         # 2. Load into separate Pandas DataFrames
         df_products = pd.DataFrame(products_data)
         df_sales = pd.DataFrame(sales_data)
         df_expenses = pd.DataFrame(expenses_data)
+        df_all_products = pd.DataFrame(all_products_data)
 
         # 3. Process Products DataFrame
         if not df_products.empty and 'stock_quantity' in df_products.columns:
@@ -80,9 +85,10 @@ def get_dashboard_metrics():
             metrics['total_revenue'] = float(df_sales['total_amount'].sum())
 
             # Grab recent sales merged with product details
-            if not df_products.empty and 'id' in df_products.columns:
+            prod_lookup = df_all_products if not df_all_products.empty else df_products
+            if not prod_lookup.empty and 'id' in prod_lookup.columns:
                 df_recent = df_sales.head(5).merge(
-                    df_products[['id', 'name', 'category']],
+                    prod_lookup[['id', 'name', 'category']],
                     left_on='product_id',
                     right_on='id',
                     how='left'
@@ -130,10 +136,10 @@ def get_sales_chart_data():
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         cursor.execute("SELECT sale_date, total_amount FROM sales ORDER BY sale_date ASC")
-        sales_records = cursor.fetchall()
+        sales_records = [dict(r) for r in cursor.fetchall()]
 
         df_sales = pd.DataFrame(sales_records)
 
@@ -181,22 +187,22 @@ def export_sales_csv():
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         query = """
-            SELECT s.id AS `Transaction ID`,
-                   s.sale_date AS `Sale Date`,
-                   p.name AS `Product Name`,
-                   p.category AS `Category`,
-                   s.quantity_sold AS `Quantity Sold`,
-                   p.selling_price AS `Unit Price (INR)`,
-                   s.total_amount AS `Total Amount (INR)`
+            SELECT s.id AS "Transaction ID",
+                   s.sale_date AS "Sale Date",
+                   p.name AS "Product Name",
+                   p.category AS "Category",
+                   s.quantity_sold AS "Quantity Sold",
+                   p.selling_price AS "Unit Price (INR)",
+                   s.total_amount AS "Total Amount (INR)"
             FROM sales s
             JOIN products p ON s.product_id = p.id
             ORDER BY s.sale_date DESC, s.id DESC
         """
         cursor.execute(query)
-        sales_records = cursor.fetchall()
+        sales_records = [dict(r) for r in cursor.fetchall()]
 
         df = pd.DataFrame(sales_records)
 

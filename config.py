@@ -14,16 +14,21 @@ class Config:
     SECRET_KEY = os.getenv('FLASK_SECRET_KEY', 'default-dev-secret-key')
     FLASK_ENV = os.getenv('FLASK_ENV', 'development')
 
-    # MySQL database connection parameters
-    DB_HOST = os.getenv('DB_HOST', 'localhost')
-    DB_PORT = int(os.getenv('DB_PORT', 3306))
-    DB_USER = os.getenv('DB_USER', 'root')
-    DB_PASSWORD = os.getenv('DB_PASSWORD', '')
-    DB_NAME = os.getenv('DB_NAME', 'digital_dukan')
+    # SQLite database configuration
+    DB_FILE = os.getenv('DB_FILE', 'digital_dukan.db')
+    DB_PATH = Path(os.getenv('DB_PATH', str(BASE_DIR / DB_FILE)))
 
-    # Connection pooling configuration
-    DB_POOL_NAME = os.getenv('DB_POOL_NAME', 'digital_dukan_pool')
-    DB_POOL_SIZE = int(os.getenv('DB_POOL_SIZE', 5))
+    # Legacy configuration for backwards compatibility
+    DB_HOST = os.getenv('DB_HOST', 'localhost')
+    try:
+        DB_PORT = int(os.getenv('DB_PORT', '3306'))
+    except (ValueError, TypeError):
+        DB_PORT = 3306
+
+    try:
+        DB_POOL_SIZE = int(os.getenv('DB_POOL_SIZE', '5'))
+    except (ValueError, TypeError):
+        DB_POOL_SIZE = 5
 
     @classmethod
     def get_db_config(cls, include_db=True):
@@ -33,7 +38,7 @@ class Config:
             'port': cls.DB_PORT,
             'user': cls.DB_USER,
             'password': cls.DB_PASSWORD,
+            'database': cls.DB_NAME if include_db else None,
+            'db_path': str(cls.DB_PATH)
         }
-        if include_db and cls.DB_NAME:
-            config['database'] = cls.DB_NAME
         return config

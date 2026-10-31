@@ -1,45 +1,49 @@
 -- =============================================================================
--- Digital Dukan - Database Schema Setup
--- Phase 2: Schema definition for retail analytics (products, sales, expenses)
+-- Digital Dukan - Database Schema Setup (SQLite Version)
+-- Retail analytics schema: products (with is_active soft delete), sales, expenses
 -- =============================================================================
 
 -- 1. Products Table
--- Stores retail inventory items, pricing, and stock levels
+-- Stores retail inventory items, pricing, stock levels, and soft delete flag
 CREATE TABLE IF NOT EXISTS products (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    category VARCHAR(100) NOT NULL,
-    purchase_price DECIMAL(10, 2) NOT NULL,
-    selling_price DECIMAL(10, 2) NOT NULL,
-    stock_quantity INT NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_products_category (category)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    purchase_price REAL NOT NULL,
+    selling_price REAL NOT NULL,
+    stock_quantity INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
 
 -- 2. Sales Table
 -- Tracks individual sales transactions linked to products
 CREATE TABLE IF NOT EXISTS sales (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    product_id INT NOT NULL,
-    quantity_sold INT NOT NULL,
-    total_amount DECIMAL(10, 2) NOT NULL,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    quantity_sold INTEGER NOT NULL,
+    total_amount REAL NOT NULL,
     sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_sales_product
-        FOREIGN KEY (product_id) REFERENCES products(id)
+    FOREIGN KEY (product_id) REFERENCES products(id)
         ON UPDATE CASCADE
-        ON DELETE RESTRICT,
-    INDEX idx_sales_product_id (product_id),
-    INDEX idx_sales_date (sale_date)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_sales_product_id ON sales(product_id);
+CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(sale_date);
 
 -- 3. Expenses Table
 -- Tracks operational and miscellaneous store expenses
 CREATE TABLE IF NOT EXISTS expenses (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    category VARCHAR(100) NOT NULL,
-    amount DECIMAL(10, 2) NOT NULL,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    amount REAL NOT NULL,
     description TEXT,
-    expense_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_expenses_category (category),
-    INDEX idx_expenses_date (expense_date)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    expense_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
